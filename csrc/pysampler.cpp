@@ -7,6 +7,33 @@ namespace py = pybind11;
 
 namespace pysampler {
 
+// Parse `range=[vmin, vmax]` (single attribute) and/or
+// `ranges=[[vmin, vmax], ...]` (multi-attribute) kwargs into a list of
+// `range1f`. Either form is optional; backends decide whether a range
+// is required (e.g. file-backed samplers) or computed from the data.
+static std::vector<range1f> parse_ranges_kwarg(const py::kwargs& kwargs) {
+  std::vector<range1f> ranges;
+  if (kwargs.contains("ranges")) {
+    auto _ranges = py::cast<std::vector<std::array<double, 2>>>(kwargs["ranges"]);
+    ranges.reserve(_ranges.size());
+    for (const auto& r : _ranges) {
+      ranges.push_back(range1f{ (float)r[0], (float)r[1] });
+    }
+  }
+  if (kwargs.contains("range")) {
+    auto _range = py::cast<std::array<double, 2>>(kwargs["range"]);
+    if (ranges.empty()) {
+      ranges.push_back(range1f{ (float)_range[0], (float)_range[1] });
+    }
+    else {
+      // If both `range` and `ranges` are passed, treat `range` as the first
+      // attribute (overrides). Anything beyond stays from `ranges`.
+      ranges.front() = range1f{ (float)_range[0], (float)_range[1] };
+    }
+  }
+  return ranges;
+}
+
 sampler_t create_structured(std::string device, const py::kwargs& kwargs)
 {
   auto _dims = py::cast<std::array<int, 3>>(kwargs["dims"]);
@@ -33,6 +60,7 @@ sampler_t create_structured(std::string device, const py::kwargs& kwargs)
   }
 
   const int n_channels = kwargs.contains("n_channels") ? py::cast<int>(kwargs["n_channels"]) : 1;
+  const std::vector<range1f> ranges = parse_ranges_kwarg(kwargs);
 
   if (kwargs.contains("filename")) {
     const auto filename   = py::cast<std::string>(kwargs["filename"]);
@@ -43,7 +71,7 @@ sampler_t create_structured(std::string device, const py::kwargs& kwargs)
     desc.dims          = dims;
     desc.spacing       = spacing;
     desc.n_channels    = n_channels;
-    desc.ranges        = {};
+    desc.ranges        = ranges;
     desc.filename      = filename.c_str();
     desc.offset        = offset;
     desc.is_big_endian = big_endian;
@@ -55,7 +83,7 @@ sampler_t create_structured(std::string device, const py::kwargs& kwargs)
     desc.dims       = dims;
     desc.spacing    = spacing;
     desc.n_channels = n_channels;
-    desc.ranges     = {};
+    desc.ranges     = ranges;
     return create_sampler(device.c_str(), desc);
   }
 }
@@ -102,11 +130,18 @@ sampler_t py_create_sampler(std::string type, std::string device, const py::kwar
 }
 
 // ---------------------------------------------------------------------------
-// All sampling functions take pre-allocated CUDA device pointers.
-// The caller (Python) owns the buffers and controls their lifetime.
+// All sampling functions take pre-allocated buffer pointers. The caller
+// (Python) owns the buffers and controls their lifetime.
 //
-// coords_ptr : float32 device buffer, shape (count, 3) — filled with sample positions in [0,1]^3
-// values_ptr : float32 device buffer, shape (n_channels, count) — filled with scalar values
+// Whether the pointers are CUDA device pointers or host pointers depends on
+// the sampler's backend:
+//   - device "cuda"           -> CUDA device pointers
+//   - device "openvkl"        -> host pointers (CPU)
+//   - device "virtual_memory" -> host pointers (CPU)
+//   - device "out_of_core"    -> host pointers (CPU)
+//
+// coords_ptr : float32 buffer, shape (count, 3) — sample positions in [0,1]^3
+// values_ptr : float32 buffer, shape (n_channels, count) — scalar values
 //              (column-major; transpose on the Python side to get (count, n_channels))
 // ---------------------------------------------------------------------------
 
@@ -136,15 +171,21 @@ PYBIND11_MODULE(EXTENSION_NAME, m) {
          "Number of scalar channels in the volume (1 for scalar fields).");
 
   m.def("create_sampler", &pysampler::py_create_sampler,
-        "Create a volume sampler. type: 'structuredRegular', 'openvdb', 'vtkm', 'exastitch', 'exabrick'.");
+        "Create a volume sampler. "
+        "type: 'structuredRegular', 'openvdb', 'vtkm', 'exastitch', 'exabrick'. "
+        "device for structuredRegular: 'cuda', 'openvkl', 'virtual_memory', 'out_of_core'. "
+        "Optional kwargs include `range=[vmin, vmax]` (or `ranges=[...]`) which is "
+        "required for the file-backed CPU samplers ('virtual_memory', 'out_of_core').");
 
   m.def("sample", &pysampler::py_sample,
         py::arg("sampler"), py::arg("coords_ptr"), py::arg("values_ptr"), py::arg("count"),
-        "Fill pre-allocated CUDA buffers. coords: (count,3) float32; values: (n_channels,count) float32.");
+        "Fill pre-allocated buffers (CUDA device pointers for the CUDA backend, "
+        "host pointers for CPU backends). coords: (count,3) float32; values: (n_channels,count) float32.");
 
   m.def("decode", &pysampler::py_decode,
         py::arg("sampler"), py::arg("coords_ptr"), py::arg("values_ptr"), py::arg("count"),
-        "Decode 1-D transfer function into pre-allocated CUDA buffer.");
+        "Sample at caller-supplied coordinates. Pointer kind matches the sampler's backend "
+        "(CUDA device pointers for 'cuda', host pointers for CPU samplers).");
 
-  m.doc() = "CUDA volume sampler — zero-copy via raw device pointers.";
+  m.doc() = "Volume sampler with CUDA, OpenVKL, virtual-memory, and out-of-core backends.";
 }

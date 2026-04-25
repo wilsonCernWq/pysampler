@@ -68,6 +68,9 @@ set(_private_inc
 add_library(sampler STATIC
   "${CMAKE_CURRENT_SOURCE_DIR}/csrc/generate_random_numbers_serial.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/csrc/sampler.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/csrc/sampler_file_regular.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/csrc/sampler_virtual_memory.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/csrc/sampler_out_of_core.cpp"
 )
 target_include_directories(sampler
   PRIVATE ${_private_inc}

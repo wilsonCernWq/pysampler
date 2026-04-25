@@ -166,13 +166,13 @@ pysampler.decode(sampler, coords.data_ptr(), values.data_ptr(), N)
 The `device × volume type` support matrix mirrors the dispatch in
 `csrc/sampler.cpp`:
 
-| volume type         | `cuda`              | `openvkl` |
-| ------------------- | ------------------- | --------- |
-| `structuredRegular` | yes                 | yes       |
-| `openvdb`           | —                   | yes       |
-| `vtkm`              | —                   | yes       |
-| `exabrick`          | yes (`ENABLE_WITCHER`) | —      |
-| `exastitch`         | yes (`ENABLE_WITCHER`) | —      |
+| volume type         | `cuda`              | `openvkl` | `virtual_memory` | `out_of_core` |
+| ------------------- | ------------------- | --------- | ---------------- | ------------- |
+| `structuredRegular` | yes                 | yes       | yes              | yes           |
+| `openvdb`           | —                   | yes       | —                | —             |
+| `vtkm`              | —                   | yes       | —                | —             |
+| `exabrick`          | yes (`ENABLE_WITCHER`) | —      | —                | —             |
+| `exastitch`         | yes (`ENABLE_WITCHER`) | —      | —                | —             |
 
 ### `structuredRegular`
 
@@ -180,7 +180,8 @@ Required: `dims=[Dx, Dy, Dz]`, `dtype` (one of `uint8`, `int8`, `uint16`,
 `int16`, `uint32`, `int32`, `float`/`float32`, `double`/`float64`).
 Optional: `spacing=[sx, sy, sz]` (default `[1, 1, 1]`), `n_channels` (default
 `1`), `filename`, `offset` (byte offset into file, default `0`),
-`is_big_endian` (default `False`).
+`is_big_endian` (default `False`), `range=[vmin, vmax]` (required by the
+`virtual_memory` and `out_of_core` backends).
 
 ```python
 sampler = pysampler.create_sampler(
@@ -193,6 +194,63 @@ sampler = pysampler.create_sampler(
     is_big_endian=False,
 )
 ```
+
+#### `virtual_memory` (CPU)
+
+The `virtual_memory` backend memory-maps the raw volume file and reads voxels
+through the OS page cache.  Use it when the volume may be larger than RAM but
+the underlying storage is reliable (local SSD/NVMe).  Requires
+`range=[vmin, vmax]`; voxels are normalized per-voxel into `[0, 1]` and then
+trilinearly interpolated.
+
+```python
+sampler = pysampler.create_sampler(
+    "structuredRegular", "virtual_memory",
+    filename="huge_volume.raw",
+    dims=[1024, 1024, 1024],
+    dtype="uint16",
+    range=[0, 65535],
+)
+```
+
+> **Note.** A transient I/O failure during a page fault raises SIGBUS, which
+> is fatal.  Prefer `out_of_core` on slow / unreliable storage.
+
+#### `out_of_core` (CPU, SIGBUS-safe)
+
+The `out_of_core` backend keeps a fixed-size cache of slabs (full-x-width
+slices) in heap memory and re-fills them via `pread()` from the file.  `pread`
+returns I/O errors as Python exceptions, never SIGBUS, so this backend is
+safe on slow / unreliable storage (network mounts, spinning HDDs that may
+time out).  Like `virtual_memory`, it requires `range=[vmin, vmax]` and uses
+normalize-then-trilinear semantics.
+
+Cache geometry is tunable via env vars (defaults are small enough for tests):
+
+| variable                     | default | meaning                                  |
+| ---------------------------- | ------- | ---------------------------------------- |
+| `VNR_NUM_BLOCKS`             | 64      | number of slabs kept resident            |
+| `VNR_NUM_CONCURRENT_BLOCKS`  | 16      | slabs refreshed at the end of `sample()` |
+
+```python
+sampler = pysampler.create_sampler(
+    "structuredRegular", "out_of_core",
+    filename="huge_volume.raw",
+    dims=[1024, 1024, 1024],
+    dtype="uint16",
+    range=[0, 65535],
+)
+```
+
+Both backends print a one-shot info banner on construction (filename, dims,
+dtype, range, offset, file size, cache geometry, etc.) so you can verify what
+the sampler is doing without instrumenting the Python caller.
+
+Note: `pysampler.sample(...)` and `pysampler.decode(...)` for the
+`virtual_memory` and `out_of_core` backends expect **host** pointers (the
+buffers are filled on the CPU; matching the OpenVKL backend's calling
+convention).  The `inrtoolkit.sampler` Python wrapper allocates CPU tensors
+automatically when you pass `device="virtual_memory"` or `device="out_of_core"`.
 
 ### `openvdb`
 

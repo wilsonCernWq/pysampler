@@ -10,6 +10,8 @@
 #include "sampler_openvkl.h"
 #endif
 
+#include "sampler_file_regular.h"
+
 #include <string>
 #include <fstream>
 
@@ -25,11 +27,16 @@
 #define IFF_OPENVKL_DEVICE ((void)0)
 #endif
 
+#define IFF_VIRTUAL_MEMORY_DEVICE { if (std::string(device) == "virtual_memory") { return pysampler::create_virtual_memory_sampler(desc); } }
+#define IFF_OUT_OF_CORE_DEVICE    { if (std::string(device) == "out_of_core")    { return pysampler::create_out_of_core_sampler(desc); } }
+
 #define THROW_UNKNOWN_DEVICE(msg) throw std::runtime_error("Error: unknown device \"" + std::string(device) + "\" for " + msg + ".")
 
 pysampler::sampler_t pysampler::create_sampler(const char* device, VolumeFileStructured desc) {
   IFF_CUDA_DEVICE;
   IFF_OPENVKL_DEVICE;
+  IFF_VIRTUAL_MEMORY_DEVICE;
+  IFF_OUT_OF_CORE_DEVICE;
   THROW_UNKNOWN_DEVICE("regular grid file");
 }
 
