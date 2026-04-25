@@ -13,7 +13,7 @@
 #   2. Picks the right PyTorch wheel index (stable or nightly for Blackwell)
 #   3. Creates a uv venv and installs ISPC
 #   4. Runs `uv pip install .[test]` which builds the C++ extension via scikit-build-core
-#      (ENABLE_OPENVDB=ON pulls and builds OpenVDB v12.0.0 from source on first run)
+#      (ENABLE_OPENVDB=ON pulls and builds OpenVDB v12.1.1 from source on first run)
 
 set -euo pipefail
 

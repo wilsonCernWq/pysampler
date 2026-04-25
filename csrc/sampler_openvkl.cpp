@@ -17,7 +17,7 @@
 #include <tbb/parallel_reduce.h>
 #include <tbb/parallel_scan.h>
 
-#ifdef ENABLE_OPENVDB
+#ifdef OPENVKL_UTILITY_VDB_OPENVDB_ENABLED
 #include <rkcommon/math/vec.h>
 #include <rkcommon/math/box.h>
 #include <rkcommon/math/constants.h>
@@ -453,7 +453,7 @@ OpenVKLSampler::Impl::process_unstructured()
   finalize();
 }
 
-#ifdef ENABLE_OPENVDB
+#ifdef OPENVKL_UTILITY_VDB_OPENVDB_ENABLED
 struct VKLImplOpenVDB {
   std::shared_ptr<OpenVdbFloatGrid> float_grid;
   std::shared_ptr<OpenVdbVec3sGrid> vec3_grid;
@@ -494,7 +494,7 @@ load_vdb_with_openvkl(VKLDevice device,
 OpenVKLSampler::OpenVKLSampler(VolumeFileOpenVDB desc)
   : SamplerBase(), pimpl(std::make_shared<Impl>(pysampler::FLOAT, 1, std::vector<range1f>{}))
 {
-#ifndef ENABLE_OPENVDB
+#ifndef OPENVKL_UTILITY_VDB_OPENVDB_ENABLED
   throw std::runtime_error("OpenVDB support is disabled");
 #else
 

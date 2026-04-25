@@ -53,8 +53,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(FetchContent)
 include(cmake/dep_pybind11.cmake)
 include(cmake/dep_witcher.cmake)   # declares ENABLE_WITCHER; must precede the CUDA backend
-include(cmake/dep_openvkl.cmake)   # declares ENABLE_OPENVKL; must precede the CUDA backend
-include(cmake/dep_openvdb.cmake)   # declares ENABLE_OPENVDB; depends on ENABLE_OPENVKL
+include(cmake/dep_openvkl.cmake)   # declares ENABLE_OPENVKL and ENABLE_OPENVDB (sub-feature)
 include(cmake/dep_vtkm.cmake)      # declares ENABLE_VTKM; must precede the CUDA backend
 
 # ── Generated headers ─────────────────────────────────────────────────────────
@@ -136,27 +135,27 @@ if(ENABLE_OPENVKL)
   target_link_libraries(sampler_openvkl PRIVATE
     TBB::tbb openvkl::openvkl
     $<$<TARGET_EXISTS:openvkl::openvkl_module_cpu_device>:openvkl::openvkl_module_cpu_device>
-    # OpenVKL's VDB utility headers (OpenVdbGrid.h) live under utility/vdb/include
-    # and are exposed via the INTERFACE target openvkl_utility_vdb.  OpenVDB
-    # itself is linked separately because OpenVKL's transitive OpenVDB hookup is
-    # only activated when OpenVKL was configured with -DOpenVDB_ROOT (we aren't).
+    # OpenVKL's VDB utility (openvkl_utility_vdb) is the .vdb→VKLVolume bridge
+    # used by csrc/sampler_openvkl.cpp.  When ENABLE_OPENVDB=ON, dep_openvkl.cmake
+    # sets OpenVDB_ROOT before configuring OpenVKL, which makes
+    # openvkl/utility/vdb/CMakeLists.txt run `find_package(OpenVDB ...)` and
+    # transitively link `OpenVDB::openvdb` for us, and define the macro
+    # `OPENVKL_UTILITY_VDB_OPENVDB_ENABLED` that gates the .vdb path in
+    # sampler_openvkl.cpp.  No explicit OpenVDB::openvdb / ENABLE_OPENVDB
+    # plumbing is needed here.
     $<$<TARGET_EXISTS:openvkl_utility_vdb>:openvkl_utility_vdb>
-    $<$<TARGET_EXISTS:OpenVDB::openvdb>:OpenVDB::openvdb>
   )
   # OpenVKL's `openvkl` target adds `<openvkl-build>/openvkl/include/openvkl`
-  # directly to the public include path (so its own internal `#include "version.h"`
-  # resolves to its generated version header).  That directory then shadows
-  # OpenVDB's `version.h`, which is included via the same `#include "version.h"`
-  # form from OpenVDB's `TypeList.h`.  Prepending OpenVDB's interface include
-  # dirs ahead of OpenVKL's restores the correct resolution order.
+  # to the public include path (so its own `#include "version.h"` resolves to
+  # its generated version header).  That directory then shadows OpenVDB's
+  # `version.h`, which OpenVDB's `TypeList.h` reaches via the same
+  # `#include "version.h"` form.  Prepending OpenVDB's interface include dirs
+  # restores the correct resolution order.
   if(TARGET OpenVDB::openvdb)
     target_include_directories(sampler_openvkl BEFORE PRIVATE
       $<TARGET_PROPERTY:OpenVDB::openvdb,INTERFACE_INCLUDE_DIRECTORIES>
     )
   endif()
-  target_compile_definitions(sampler_openvkl PRIVATE
-    $<$<TARGET_EXISTS:OpenVDB::openvdb>:ENABLE_OPENVDB>
-  )
   set_target_properties(sampler_openvkl PROPERTIES POSITION_INDEPENDENT_CODE ON)
   # >>> link to sampler <<<
   target_link_libraries(sampler PUBLIC sampler_openvkl)
