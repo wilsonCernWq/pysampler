@@ -2,16 +2,18 @@
 # Set up the Python environment for pysampler.
 #
 # Usage:
-#   ./setup_venv.sh                  # auto-detect GPU and CUDA version
-#   ./setup_venv.sh --clean          # remove .venv and uv cache, then exit
-#   VENV_DIR=~/myenv ./setup_venv.sh # custom venv location
-#   SM=86 ./setup_venv.sh            # override GPU arch (skips nvidia-smi)
+#   ./setup_venv.sh                       # auto-detect GPU and CUDA version
+#   ./setup_venv.sh --clean               # remove .venv and uv cache, then exit
+#   VENV_DIR=~/myenv ./setup_venv.sh      # custom venv location
+#   SM=86 ./setup_venv.sh                 # override GPU arch (skips nvidia-smi)
+#   ENABLE_OPENVDB=OFF ./setup_venv.sh    # skip OpenVDB (.vdb file) support
 #
 # What it does:
 #   1. Detects GPU compute capability and CUDA toolkit version
 #   2. Picks the right PyTorch wheel index (stable or nightly for Blackwell)
 #   3. Creates a uv venv and installs ISPC
 #   4. Runs `uv pip install .[test]` which builds the C++ extension via scikit-build-core
+#      (ENABLE_OPENVDB=ON pulls and builds OpenVDB v12.0.0 from source on first run)
 
 set -euo pipefail
 
@@ -85,6 +87,11 @@ export PATH="$CUDA_HOME/bin${PATH:+:$PATH}"
 export LD_LIBRARY_PATH="$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 echo "[info] CUDA bin/lib64 added to PATH/LD_LIBRARY_PATH for this session"
 
+# ── OpenVDB ───────────────────────────────────────────────────────────────────
+# Built from source by cmake/dep_openvdb.cmake; CMake emits its own warnings
+# for missing optional deps (Blosc).  Set ENABLE_OPENVDB=OFF to skip.
+ENABLE_OPENVDB="${ENABLE_OPENVDB:-ON}"
+
 # ── create venv ───────────────────────────────────────────────────────────────
 uv venv "$VENV_DIR" --python 3.11
 source "$VENV_DIR/bin/activate"
@@ -108,6 +115,9 @@ else
 fi
 
 # ── install pysampler + deps ─────────────────────────────────────────────────
+# CMAKE_ARGS is forwarded by scikit-build-core to the underlying cmake call;
+# this is how non-built-in CMake variables (ENABLE_*) reach our CMakeLists.
 echo "[info] Building pysampler..."
+CMAKE_ARGS="-DENABLE_OPENVDB=$ENABLE_OPENVDB" \
 CMAKE_CUDA_ARCHITECTURES="$SM" UV_INDEX="pytorch=$TORCH_INDEX" \
     uv pip install -v .[test]

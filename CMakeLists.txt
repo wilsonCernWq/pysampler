@@ -54,6 +54,7 @@ include(FetchContent)
 include(cmake/dep_pybind11.cmake)
 include(cmake/dep_witcher.cmake)   # declares ENABLE_WITCHER; must precede the CUDA backend
 include(cmake/dep_openvkl.cmake)   # declares ENABLE_OPENVKL; must precede the CUDA backend
+include(cmake/dep_openvdb.cmake)   # declares ENABLE_OPENVDB; depends on ENABLE_OPENVKL
 include(cmake/dep_vtkm.cmake)      # declares ENABLE_VTKM; must precede the CUDA backend
 
 # ── Generated headers ─────────────────────────────────────────────────────────
@@ -135,8 +136,24 @@ if(ENABLE_OPENVKL)
   target_link_libraries(sampler_openvkl PRIVATE
     TBB::tbb openvkl::openvkl
     $<$<TARGET_EXISTS:openvkl::openvkl_module_cpu_device>:openvkl::openvkl_module_cpu_device>
+    # OpenVKL's VDB utility headers (OpenVdbGrid.h) live under utility/vdb/include
+    # and are exposed via the INTERFACE target openvkl_utility_vdb.  OpenVDB
+    # itself is linked separately because OpenVKL's transitive OpenVDB hookup is
+    # only activated when OpenVKL was configured with -DOpenVDB_ROOT (we aren't).
+    $<$<TARGET_EXISTS:openvkl_utility_vdb>:openvkl_utility_vdb>
     $<$<TARGET_EXISTS:OpenVDB::openvdb>:OpenVDB::openvdb>
   )
+  # OpenVKL's `openvkl` target adds `<openvkl-build>/openvkl/include/openvkl`
+  # directly to the public include path (so its own internal `#include "version.h"`
+  # resolves to its generated version header).  That directory then shadows
+  # OpenVDB's `version.h`, which is included via the same `#include "version.h"`
+  # form from OpenVDB's `TypeList.h`.  Prepending OpenVDB's interface include
+  # dirs ahead of OpenVKL's restores the correct resolution order.
+  if(TARGET OpenVDB::openvdb)
+    target_include_directories(sampler_openvkl BEFORE PRIVATE
+      $<TARGET_PROPERTY:OpenVDB::openvdb,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+  endif()
   target_compile_definitions(sampler_openvkl PRIVATE
     $<$<TARGET_EXISTS:OpenVDB::openvdb>:ENABLE_OPENVDB>
   )
@@ -218,6 +235,14 @@ endif()
 if(ENABLE_OPENVKL)
   list(APPEND _pysampler_targets openvkl openvkl_module_cpu_device rkcommon embree)
   list(APPEND _pysampler_targets openvkl_module_cpu_device_4 openvkl_module_cpu_device_8 openvkl_module_cpu_device_16)
+endif()
+
+if(ENABLE_OPENVDB)
+  # openvdb_shared is the actual shared lib when OpenVDB is built from source;
+  # if it came from the system find_package(), the target will not exist and
+  # the install loop below skips it (the shared lib is already on the runtime
+  # linker path via the system installation).
+  list(APPEND _pysampler_targets openvdb_shared)
 endif()
 
 # Install all targets in the _pysampler_targets list
