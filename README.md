@@ -306,4 +306,4 @@ Apache-2.0. See `pyproject.toml` for the canonical metadata.
 
 ## Author
 
-Qi Wu — `qiwu@nvidia.com`.
+Qi Wu — `wilson.over.cloud@gmail.com`.
