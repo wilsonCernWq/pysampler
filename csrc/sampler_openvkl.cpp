@@ -10,6 +10,7 @@
 #include <openvkl/openvkl.h>
 #include <openvkl/device/openvkl.h>
 
+#include <cmath>
 #include <cstring>
 
 #include <tbb/parallel_for.h>
@@ -20,13 +21,15 @@
 #include <rkcommon/math/vec.h>
 #include <rkcommon/math/box.h>
 #include <rkcommon/math/constants.h>
+// Include OpenVDB's generated version header first to avoid accidental
+// shadowing by OpenVKL's own version.h when include search order differs.
+#include <openvdb/version.h>
 namespace openvkl::utility::vdb {
   using box3i = rkcommon::math::box3i;
   using rkcommon::math::one;
   using rkcommon::math::empty;
 }
 #include <openvkl/utility/vdb/OpenVdbGrid.h>
-#include <openvdb/tools/Statistics.h>
 using openvkl::utility::vdb::OpenVdbFloatGrid;
 using openvkl::utility::vdb::OpenVdbVec3sGrid;
 #endif
@@ -452,11 +455,40 @@ OpenVKLSampler::Impl::process_unstructured()
 
 #ifdef ENABLE_OPENVDB
 struct VKLImplOpenVDB {
-  openvdb::FloatGrid::Ptr base_f;
-  openvdb::Vec3SGrid::Ptr base_v;
-  OpenVdbFloatGrid f;
-  OpenVdbVec3sGrid v;
+  std::shared_ptr<OpenVdbFloatGrid> float_grid;
+  std::shared_ptr<OpenVdbVec3sGrid> vec3_grid;
 };
+
+static VKLVolume
+load_vdb_with_openvkl(VKLDevice device,
+                      const std::string& filename,
+                      const std::string& field,
+                      std::shared_ptr<VKLImplOpenVDB>& holder)
+{
+  holder = std::make_shared<VKLImplOpenVDB>();
+
+  try {
+    holder->float_grid = std::make_shared<OpenVdbFloatGrid>(
+      device, filename, field, /*deferLeaves=*/false, /*repackNodes=*/false
+    );
+    return holder->float_grid->createVolume(/*commit=*/false);
+  }
+  catch (const std::exception& float_error) {
+    try {
+      holder->vec3_grid = std::make_shared<OpenVdbVec3sGrid>(
+        device, filename, field, /*deferLeaves=*/false, /*repackNodes=*/false
+      );
+      return holder->vec3_grid->createVolume(/*commit=*/false);
+    }
+    catch (const std::exception& vec_error) {
+      throw std::runtime_error(
+        "failed to load OpenVDB grid '" + field + "' from '" + filename +
+        "' via OpenVKL.\nfloat loader error: " + float_error.what() +
+        "\nvec3 loader error: " + vec_error.what()
+      );
+    }
+  }
+}
 #endif
 
 OpenVKLSampler::OpenVKLSampler(VolumeFileOpenVDB desc)
@@ -468,55 +500,27 @@ OpenVKLSampler::OpenVKLSampler(VolumeFileOpenVDB desc)
 
   const std::string path = desc.filename;
   const std::string field = desc.field;
+  pimpl->volume = load_vdb_with_openvkl(pimpl->ctx->device, path, field, pimpl->data_openvdb);
 
-  openvdb::initialize();
-  openvdb::GridBase::Ptr grid;
-  try {
-    openvdb::io::File file(path);
-    file.open();
-    for (openvdb::io::File::NameIterator nameIter = file.beginName(); nameIter != file.endName(); ++nameIter) {
-      std::cout << "--> field: " << nameIter.gridName() << std::endl;
-    }
-    grid = file.readGrid(field);
-    file.close();
-  } catch (const std::exception &e) {
-    throw std::runtime_error(e.what());
-  }
-  std::cout << "openvdb grid type: " << grid->type() << std::endl;
-
-  // ------------------------------
-  // Loader 
-  // ------------------------------
-
-  pimpl->data_openvdb = std::make_shared<VKLImplOpenVDB>();
-
-  openvdb::math::Extrema stats;
-  std::cout << "grid type: " << grid->type() << std::endl;
-
-  // We only support the default topology in this loader.
-  if (grid->type() == "Tree_float_5_4_3") {
-    pimpl->data_openvdb->base_f = openvdb::gridPtrCast<openvdb::FloatGrid>(grid);
-    pimpl->data_openvdb->f = OpenVdbFloatGrid(pimpl->ctx->device, pimpl->data_openvdb->base_f, false, false);
-    pimpl->volume = pimpl->data_openvdb->f.createVolume(false);
-    stats = openvdb::tools::extrema(pimpl->data_openvdb->base_f->cbeginValueOn(), /*threaded=*/true);
-  }
-  else if (grid->type() == "Tree_vec3s_5_4_3") {
-    pimpl->data_openvdb->base_v = openvdb::gridPtrCast<openvdb::Vec3SGrid>(grid);
-    pimpl->data_openvdb->v = OpenVdbVec3sGrid(pimpl->ctx->device, pimpl->data_openvdb->base_v, false, false);
-    pimpl->volume = pimpl->data_openvdb->v.createVolume(false);
-    stats = openvdb::tools::extrema(pimpl->data_openvdb->base_v->cbeginValueOn(), /*threaded=*/true);
-  }
-  else {
-    throw std::runtime_error(std::string("Incorrect tree type: ") + grid->type());
-  }
-
-  std::cout << "min: " << stats.min() << ", max: " << stats.max() << std::endl;
-  pimpl->ranges.resize(pimpl->n_channels);
-  pimpl->ranges[0] = range1f{ (float)stats.min(), (float)stats.max() };
-
-  // Create vplume
+  // Keep filtering behavior aligned with instantvnr's OpenVDB path.
+  vklSetInt(pimpl->volume, "filter", VKL_FILTER_LINEAR);
   vklSetFloat(pimpl->volume, "background", 0.f);
   vklCommit(pimpl->volume);
+
+  pimpl->ranges.resize(pimpl->n_channels);
+  {
+    // Query after commit; pre-commit value ranges may be undefined/degenerate
+    // for some OpenVKL volume backends.
+    const auto r = vklGetValueRange(pimpl->volume, /*attributeIndex=*/0);
+    if (std::isfinite(r.lower) && std::isfinite(r.upper) && r.upper > r.lower) {
+      pimpl->ranges[0] = range1f{ (float)r.lower, (float)r.upper };
+    }
+    else {
+      // OpenVKL test loaders normalize OpenVDB scalar fields to [0,1].
+      // Use that as a safe fallback to avoid NaN from divide-by-zero.
+      pimpl->ranges[0] = range1f{ 0.f, 1.f };
+    }
+  }
 
   // Create sampler
   pimpl->finalize();
