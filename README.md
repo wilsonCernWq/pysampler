@@ -1,5 +1,11 @@
 # pysampler
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![CUDA](https://img.shields.io/badge/CUDA-required-76B900.svg?logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-toolkit)
+[![Build: scikit-build-core](https://img.shields.io/badge/build-scikit--build--core-orange.svg)](https://github.com/scikit-build/scikit-build-core)
+[![DOI](https://img.shields.io/badge/DOI-10.1109%2FTVCG.2023.3293121-1f6feb.svg)](https://doi.org/10.1109/TVCG.2023.3293121)
+
 CUDA volume sampler — zero-copy access to structured, OpenVDB, and AMR volumes.
 
 `pysampler` is built to accelerate the training of **Volumetric Neural
@@ -347,9 +353,19 @@ paper that motivates this sampler:
   ·
   [code](https://github.com/VIDILabs/instantvnr)
 
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development setup, coding style, and PR workflow. By submitting a contribution
+you agree to license it under the terms of `LICENSE` (Apache-2.0).
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE). Copyright 2026 Qi Wu.
+
+Third-party components bundled or fetched at build time (pybind11, OpenVKL,
+Embree, rkcommon, VTK-m, owlExaStitcher, …) retain their own licenses; see
+[NOTICE](NOTICE) for the full attribution list.
 
 ## Author
 
