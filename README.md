@@ -2,6 +2,26 @@
 
 CUDA volume sampler — zero-copy access to structured, OpenVDB, and AMR volumes.
 
+`pysampler` is built to accelerate the training of **Volumetric Neural
+Representations (VNRs)** — networks that encode a volume as a continuous
+function $f \colon (x, y, z) \mapsto v$. Training such networks requires drawing
+millions of `(coord, value)` pairs per second from the ground-truth volume,
+and `pysampler` is the data-loading half of that loop: it fuses random
+coordinate generation and volume sampling into a single CUDA kernel that
+writes directly into PyTorch tensors, eliminating host-device transfers in
+the hot path.
+
+It is the sampling backend used by `instantvnr`:
+
+- **Project:** [VIDILabs/instantvnr](https://github.com/VIDILabs/instantvnr)
+  — interactive volumetric-neural-representation training & rendering.
+- **Paper:** Wu et al., *Interactive Volume Visualization via Multi-Resolution
+  Hash Encoding Based Neural Representation*, IEEE TVCG 2024 &nbsp;·&nbsp;
+  [DOI](https://doi.org/10.1109/TVCG.2023.3293121) &nbsp;·&nbsp;
+  [arXiv:2207.11620](https://arxiv.org/abs/2207.11620)
+
+See [Citation](#citation) below for the BibTeX entry.
+
 ## Overview
 
 `pysampler` is a [pybind11](https://pybind11.readthedocs.io/) extension that
@@ -300,9 +320,36 @@ pysampler/
 └── tests/test_sampler.py   # reference trilinear + smoke tests
 ```
 
+## Citation
+
+If you use `pysampler` in academic work, please cite this repository:
+
+```bibtex
+@software{pysampler,
+  author  = {Wu, Qi},
+  title   = {{pysampler}: {CUDA} volume sampler for {V}olumetric {N}eural {R}epresentations},
+  year    = {2026},
+  version = {0.1.0},
+  url     = {https://github.com/wilsonCernWq/pysampler},
+}
+```
+
+You may also want to cite the underlying volumetric neural representation
+paper that motivates this sampler:
+
+- Qi Wu, David Bauer, Michael J. Doyle, Kwan-Liu Ma. *Interactive Volume
+  Visualization via Multi-Resolution Hash Encoding Based Neural
+  Representation*. IEEE Transactions on Visualization and Computer Graphics,
+  vol. 30, 2024.
+  [DOI: 10.1109/TVCG.2023.3293121](https://doi.org/10.1109/TVCG.2023.3293121)
+  ·
+  [arXiv:2207.11620](https://arxiv.org/abs/2207.11620)
+  ·
+  [code](https://github.com/VIDILabs/instantvnr)
+
 ## License
 
-Apache-2.0. See `pyproject.toml` for the canonical metadata.
+Apache-2.0 — see [LICENSE](LICENSE). Copyright 2026 Qi Wu.
 
 ## Author
 
