@@ -112,17 +112,22 @@ sampler_t py_create_sampler(std::string type, std::string device, const py::kwar
   }
 
   if (type == "exastitch") {
+    const auto umesh  = py::cast<std::string>(kwargs["umesh"]);
+    const auto grids  = py::cast<std::string>(kwargs["grids"]);
+    const auto scalar = py::cast<std::string>(kwargs["scalar"]);
     VolumeFileExaStitch desc;
-    desc.umesh  = py::cast<std::string>(kwargs["umesh"]).c_str();
-    desc.grids  = py::cast<std::string>(kwargs["grids"]).c_str();
-    desc.scalar = py::cast<std::string>(kwargs["scalar"]).c_str();
+    desc.umesh  = umesh.c_str();
+    desc.grids  = grids.c_str();
+    desc.scalar = scalar.c_str();
     return create_sampler(device.c_str(), desc);
   }
 
   if (type == "exabrick") {
+    const auto bricks = py::cast<std::string>(kwargs["bricks"]);
+    const auto scalar = py::cast<std::string>(kwargs["scalar"]);
     VolumeFileExaBrick desc;
-    desc.bricks = py::cast<std::string>(kwargs["bricks"]).c_str();
-    desc.scalar = py::cast<std::string>(kwargs["scalar"]).c_str();
+    desc.bricks = bricks.c_str();
+    desc.scalar = scalar.c_str();
     return create_sampler(device.c_str(), desc);
   }
 
