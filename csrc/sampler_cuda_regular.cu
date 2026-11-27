@@ -88,10 +88,15 @@ CUDASampler::process_structured(const VolumeDataStructured& desc)
     default: throw std::runtime_error("unknown data type");
     }
 
-    if (m_type == UINT8)  { r = range1f{ 0.f, 1.f }; }
-    if (m_type == INT8)   { r = range1f{ 0.f, 1.f }; }
-    if (m_type == UINT16) { r = range1f{ 0.f, 1.f }; }
-    if (m_type == INT16)  { r = range1f{ 0.f, 1.f }; }
+    // Integer textures narrower than 32 bits are read as normalized floats
+    // (value / type maximum). Express the data min/max in those units so that
+    // every dtype is normalized by its own data range.
+    float texel_scale = 1.f;
+    if (m_type == UINT8)  { texel_scale = 1.f / 255.f; }
+    if (m_type == INT8)   { texel_scale = 1.f / 127.f; }
+    if (m_type == UINT16) { texel_scale = 1.f / 65535.f; }
+    if (m_type == INT16)  { texel_scale = 1.f / 32767.f; }
+    r = range1f{ r.lower * texel_scale, r.upper * texel_scale };
   
     // std::cout << "range: " << r.lower << " " << r.upper << std::endl;
 
@@ -116,6 +121,7 @@ CUDASampler::process_structured(const VolumeDataStructured& desc)
   }
 
   m_bounds = box3f(vec3f(0.f), vec3f(dims) * desc.spacing);
+  m_dims = desc.dims;
   m_sampling_mode = STRUCTURED;
 }
 

@@ -101,6 +101,7 @@ endif()
 set(_cuda_sources
   "${CMAKE_CURRENT_SOURCE_DIR}/csrc/generate_random_numbers_cuda.cu"
   "${CMAKE_CURRENT_SOURCE_DIR}/csrc/sampler_cuda.cu"
+  "${CMAKE_CURRENT_SOURCE_DIR}/csrc/sample_strategies.cu"
   "${CMAKE_CURRENT_SOURCE_DIR}/csrc/sampler_cuda_regular.cu"
 )
 if(ENABLE_WITCHER)

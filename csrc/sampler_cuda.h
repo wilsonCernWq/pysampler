@@ -20,6 +20,7 @@ protected:
   const dtype m_type{};
   const int m_n_channels{};
   box3f m_bounds;
+  vec3i m_dims{};
   std::vector<range1f> m_ranges;
 
   std::vector<std::shared_ptr<CUDAImplStructured>> m_fields_structured;
@@ -52,6 +53,7 @@ public:
   pysampler::Device device() const override { return pysampler::Device::CUDA; }
   pysampler::box3f bounds() const override { return m_bounds; }
   int n_channels() const override { return m_n_channels; }
+  vec3i dims() const override { return m_sampling_mode == STRUCTURED ? m_dims : SamplerBase::dims(); }
   void sample(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, size_t count) override;
   void decode1d(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, size_t count) override;
   void decode3d(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, const vec3i& dims) override;

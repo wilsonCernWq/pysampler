@@ -150,13 +150,18 @@ sampler_t py_create_sampler(std::string type, std::string device, const py::kwar
 //              (column-major; transpose on the Python side to get (count, n_channels))
 // ---------------------------------------------------------------------------
 
-void py_sample(sampler_t sampler, uintptr_t coords_ptr, uintptr_t values_ptr, int64_t count) {
-  sampler->sample(
-    reinterpret_cast<void*>(coords_ptr),
-    reinterpret_cast<void*>(values_ptr),
-    vec3f{0, 0, 0}, vec3f{1, 1, 1},
-    static_cast<uint32_t>(count)
-  );
+// strategy   : "uniform"    — continuous uniform positions (default)
+//              "grid"       — random voxel centers, exact voxel values
+//              "stratified" — jittered lattice (one sample per lattice cell)
+void py_sample(sampler_t sampler, uintptr_t coords_ptr, uintptr_t values_ptr, int64_t count, const std::string& strategy) {
+  void* coords = reinterpret_cast<void*>(coords_ptr);
+  void* values = reinterpret_cast<void*>(values_ptr);
+  const vec3f lower{0, 0, 0}, upper{1, 1, 1};
+  const size_t n = static_cast<uint32_t>(count);
+  if      (strategy == "uniform")    sampler->sample(coords, values, lower, upper, n);
+  else if (strategy == "grid")       sampler->sample_grid(coords, values, lower, upper, n);
+  else if (strategy == "stratified") sampler->sample_stratified(coords, values, lower, upper, n);
+  else throw std::runtime_error("unknown sampling strategy \"" + strategy + "\" (expected uniform, grid, or stratified)");
 }
 
 void py_decode(sampler_t sampler, uintptr_t coords_ptr, uintptr_t values_ptr, int64_t count) {
@@ -184,8 +189,11 @@ PYBIND11_MODULE(EXTENSION_NAME, m) {
 
   m.def("sample", &pysampler::py_sample,
         py::arg("sampler"), py::arg("coords_ptr"), py::arg("values_ptr"), py::arg("count"),
+        py::arg("strategy") = "uniform",
         "Fill pre-allocated buffers (CUDA device pointers for the CUDA backend, "
-        "host pointers for CPU backends). coords: (count,3) float32; values: (n_channels,count) float32.");
+        "host pointers for CPU backends). coords: (count,3) float32; values: (n_channels,count) float32. "
+        "strategy: 'uniform' (continuous), 'grid' (random voxel centers, structuredRegular only), "
+        "or 'stratified' (jittered lattice).");
 
   m.def("decode", &pysampler::py_decode,
         py::arg("sampler"), py::arg("coords_ptr"), py::arg("values_ptr"), py::arg("count"),

@@ -70,7 +70,25 @@ public:
   virtual void sample(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, size_t count) = 0;
   virtual void decode1d(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, size_t count) = 0;
   virtual void decode3d(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, const vec3i& dims) = 0;
+
+  // Voxel resolution of the underlying structured grid. Volume types without
+  // one keep the default, which makes grid sampling unavailable for them.
+  virtual vec3i dims() const { throw std::runtime_error("grid sampling requires a structured regular volume"); }
+
+  // Alternative sampling strategies. Same buffers and layout as sample().
+  //   sample_grid       : random voxels (with replacement); coords are voxel
+  //                       centers (i + 0.5) / dims, values are the stored voxels.
+  //   sample_stratified : jittered lattice. [0,1]^3 is split into n^3 cells,
+  //                       n = floor(cbrt(count)), with one uniform sample per
+  //                       cell; the remaining count - n^3 samples are uniform.
+  void sample_grid(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, size_t count);
+  void sample_stratified(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, size_t count);
 };
+
+// In-place rewrites of `count` uniform random points in [0,1]^3 (host or CUDA
+// pointer, selected by `device`). Implemented in sample_strategies.cu.
+void snap_to_voxel_centers(vec3f* coords, size_t count, const vec3i& dims, Device device);
+void jitter_within_lattice(vec3f* coords, size_t count, Device device);
 
 typedef std::shared_ptr<SamplerBase> sampler_t;
 

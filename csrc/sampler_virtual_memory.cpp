@@ -40,6 +40,7 @@ public:
   pysampler::Device device()    const override { return pysampler::Device::CPU; }
   pysampler::box3f  bounds()    const override { return m_bounds; }
   int               n_channels() const override { return 1; }
+  vec3i             dims()       const override { return m_dims; }
 
   void sample(void* h_coords, void* h_values,
               const vec3f& lower, const vec3f& upper, size_t count) override;
