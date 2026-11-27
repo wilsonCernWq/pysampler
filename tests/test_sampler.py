@@ -227,3 +227,107 @@ def test_sample_fills_coords_and_values():
             "normalized values out of [0, 1]"
     finally:
         os.unlink(fname)
+
+
+# ---------------------------------------------------------------------------
+# Sampling strategies
+# ---------------------------------------------------------------------------
+
+def _sample_with_strategy(volume, backend, strategy, count):
+    """Return (coords (count,3), values (count,)) as numpy arrays."""
+    Dz, Dy, Dx = volume.shape
+    with tempfile.NamedTemporaryFile(suffix=".raw", delete=False) as f:
+        fname = f.name
+        volume.tofile(f)
+    try:
+        kwargs = dict(filename=fname, dims=[Dx, Dy, Dz], dtype="float32")
+        if backend != "cuda":
+            kwargs["range"] = [float(volume.min()), float(volume.max())]
+        sampler = pysampler.create_sampler("structuredRegular", backend, **kwargs)
+        device = "cuda" if backend == "cuda" else "cpu"
+        coords = torch.full((count, 3), -1.0, dtype=torch.float32, device=device)
+        values = torch.full((1, count), -1.0, dtype=torch.float32, device=device)
+        pysampler.sample(sampler, coords.data_ptr(), values.data_ptr(), count, strategy)
+        return coords.cpu().numpy(), values[0].cpu().numpy()
+    finally:
+        os.unlink(fname)
+
+
+@pytest.mark.parametrize("backend", ["cuda", "virtual_memory", "out_of_core"])
+def test_grid_strategy_returns_exact_voxels(backend):
+    """'grid' must return voxel centers and the voxel values stored there."""
+    rng = np.random.default_rng(3)
+    Dx, Dy, Dz = 12, 9, 7
+    volume = rng.uniform(-2, 5, (Dz, Dy, Dx)).astype(np.float32)
+    coords, values = _sample_with_strategy(volume, backend, "grid", 4096)
+
+    dims = np.array([Dx, Dy, Dz], dtype=np.float32)
+    index = coords * dims - 0.5
+    nearest = np.rint(index).astype(np.int64)
+    np.testing.assert_allclose(index, nearest, atol=1e-4)
+    assert nearest.min() >= 0 and (nearest < dims).all()
+    # Every voxel of this small volume should be hit by 4096 draws.
+    assert len(np.unique(nearest, axis=0)) > 0.9 * Dx * Dy * Dz
+
+    vmin, vmax = volume.min(), volume.max()
+    expected = (volume[nearest[:, 2], nearest[:, 1], nearest[:, 0]] - vmin) / (vmax - vmin)
+    np.testing.assert_allclose(values, expected, atol=1e-5)
+
+
+@pytest.mark.parametrize("backend", ["cuda", "virtual_memory"])
+def test_stratified_strategy_covers_every_lattice_cell(backend):
+    """'stratified' with count = n^3 puts exactly one sample in each cell."""
+    rng = np.random.default_rng(4)
+    volume = rng.uniform(0, 1, (10, 10, 10)).astype(np.float32)
+    n = 6
+    coords, values = _sample_with_strategy(volume, backend, "stratified", n ** 3)
+
+    assert coords.min() >= 0.0 and coords.max() <= 1.0
+    cells = np.minimum(np.floor(coords * n), n - 1).astype(np.int64)
+    flat = cells[:, 0] + n * (cells[:, 1] + n * cells[:, 2])
+    assert len(np.unique(flat)) == n ** 3
+
+    # tex3D interpolates with 8-bit weights; on a noise volume that is ~4e-3.
+    expected = _trilinear_ref(volume, coords)
+    np.testing.assert_allclose(values, expected, atol=5e-3 if backend == "cuda" else 1e-5)
+
+
+def test_stratified_strategy_fills_remainder_uniformly():
+    """Samples beyond the n^3 lattice are still valid points in [0,1]^3."""
+    volume = np.random.default_rng(5).uniform(0, 1, (8, 8, 8)).astype(np.float32)
+    coords, values = _sample_with_strategy(volume, "cuda", "stratified", 5 ** 3 + 17)
+    assert coords.min() >= 0.0 and coords.max() <= 1.0
+    assert values.min() >= 0.0 and values.max() <= 1.0
+
+
+def test_unknown_strategy_is_rejected():
+    volume = np.zeros((4, 4, 4), dtype=np.float32)
+    with pytest.raises(RuntimeError, match="unknown sampling strategy"):
+        _sample_with_strategy(volume, "cuda", "nearest", 8)
+
+
+@pytest.mark.parametrize("dtype, low, high", [("uint8", 40, 200), ("uint16", 5900, 58000)])
+def test_integer_volumes_are_normalized_by_data_range(dtype, low, high):
+    """Integer volumes map their own min/max to [0, 1], like float volumes."""
+    rng = np.random.default_rng(6)
+    Dx, Dy, Dz = 8, 6, 5
+    volume = rng.integers(low, high + 1, size=(Dz, Dy, Dx)).astype(dtype)
+    volume.flat[0], volume.flat[-1] = low, high
+    with tempfile.NamedTemporaryFile(suffix=".raw", delete=False) as f:
+        fname = f.name
+        volume.tofile(f)
+    try:
+        sampler = pysampler.create_sampler(
+            "structuredRegular", "cuda", filename=fname, dims=[Dx, Dy, Dz], dtype=dtype,
+        )
+        N = 2048
+        coords = torch.empty((N, 3), dtype=torch.float32, device="cuda")
+        values = torch.empty((1, N), dtype=torch.float32, device="cuda")
+        pysampler.sample(sampler, coords.data_ptr(), values.data_ptr(), N, "grid")
+        index = np.rint(coords.cpu().numpy() * [Dx, Dy, Dz] - 0.5).astype(int)
+        stored = volume[index[:, 2], index[:, 1], index[:, 0]].astype(np.float64)
+        np.testing.assert_allclose(
+            values[0].cpu().numpy(), (stored - low) / (high - low), atol=1e-4
+        )
+    finally:
+        os.unlink(fname)

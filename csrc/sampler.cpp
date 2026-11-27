@@ -139,4 +139,25 @@ load_regular_grid(const char* _filename, vec3i dims, int n_channels, dtype type,
   return data_buffer;
 }
 
+// Host buffers use the host generator, so CPU samplers never touch the GPU.
+static void fill_uniforms(void* coords, size_t count, Device device) {
+  if (device == Device::CPU) generate_random_uniforms_serial(count * 3, (float*)coords, device);
+  else                       generate_random_uniforms((float*)coords, count * 3, device);
+}
+
+void
+SamplerBase::sample_grid(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, size_t count) {
+  const vec3i grid = dims();
+  fill_uniforms(d_coords, count, device());
+  snap_to_voxel_centers((vec3f*)d_coords, count, grid, device());
+  decode1d(d_coords, d_values, lower, upper, count);
+}
+
+void
+SamplerBase::sample_stratified(void* d_coords, void* d_values, const vec3f& lower, const vec3f& upper, size_t count) {
+  fill_uniforms(d_coords, count, device());
+  jitter_within_lattice((vec3f*)d_coords, count, device());
+  decode1d(d_coords, d_values, lower, upper, count);
+}
+
 }
